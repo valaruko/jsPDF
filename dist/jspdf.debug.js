@@ -7,8 +7,125 @@
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) {
   return typeof obj;
 } : function (obj) {
-  return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj;
+  return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj;
 };
+
+
+
+
+
+var asyncGenerator = function () {
+  function AwaitValue(value) {
+    this.value = value;
+  }
+
+  function AsyncGenerator(gen) {
+    var front, back;
+
+    function send(key, arg) {
+      return new Promise(function (resolve, reject) {
+        var request = {
+          key: key,
+          arg: arg,
+          resolve: resolve,
+          reject: reject,
+          next: null
+        };
+
+        if (back) {
+          back = back.next = request;
+        } else {
+          front = back = request;
+          resume(key, arg);
+        }
+      });
+    }
+
+    function resume(key, arg) {
+      try {
+        var result = gen[key](arg);
+        var value = result.value;
+
+        if (value instanceof AwaitValue) {
+          Promise.resolve(value.value).then(function (arg) {
+            resume("next", arg);
+          }, function (arg) {
+            resume("throw", arg);
+          });
+        } else {
+          settle(result.done ? "return" : "normal", result.value);
+        }
+      } catch (err) {
+        settle("throw", err);
+      }
+    }
+
+    function settle(type, value) {
+      switch (type) {
+        case "return":
+          front.resolve({
+            value: value,
+            done: true
+          });
+          break;
+
+        case "throw":
+          front.reject(value);
+          break;
+
+        default:
+          front.resolve({
+            value: value,
+            done: false
+          });
+          break;
+      }
+
+      front = front.next;
+
+      if (front) {
+        resume(front.key, front.arg);
+      } else {
+        back = null;
+      }
+    }
+
+    this._invoke = send;
+
+    if (typeof gen.return !== "function") {
+      this.return = undefined;
+    }
+  }
+
+  if (typeof Symbol === "function" && Symbol.asyncIterator) {
+    AsyncGenerator.prototype[Symbol.asyncIterator] = function () {
+      return this;
+    };
+  }
+
+  AsyncGenerator.prototype.next = function (arg) {
+    return this._invoke("next", arg);
+  };
+
+  AsyncGenerator.prototype.throw = function (arg) {
+    return this._invoke("throw", arg);
+  };
+
+  AsyncGenerator.prototype.return = function (arg) {
+    return this._invoke("return", arg);
+  };
+
+  return {
+    wrap: function (fn) {
+      return function () {
+        return new AsyncGenerator(fn.apply(this, arguments));
+      };
+    },
+    await: function (value) {
+      return new AwaitValue(value);
+    }
+  };
+}();
 
 
 
@@ -89,8 +206,8 @@ var set$1 = function set$1(object, property, value, receiver) {
 
 /** @preserve
  * jsPDF - PDF Document creation from JavaScript
- * Version 1.3.2 Built on 2016-10-07T02:03:54.044Z
- *                           CommitID b0c67949b0
+ * Version 1.3.2 Built on 2017-03-13T17:46:02.266Z
+ *                           CommitID fb50783305
  *
  * Copyright (c) 2010-2016 James Hall <james@parall.ax>, https://github.com/MrRio/jsPDF
  *               2010 Aaron Spike, https://github.com/acspike
@@ -183,6 +300,7 @@ var jsPDF = function (global) {
    *
    * @class
    * @name PubSub
+   * @ignore This should not be in the public docs.
    */
   function PubSub(context) {
     var topics = {};
@@ -519,6 +637,7 @@ var jsPDF = function (global) {
      * @property PostScriptName {String} PDF specification full name for the font
      * @property encoding {Object} Encoding_name-to-Font_metrics_object mapping.
      * @name FontObject
+     * @ignore This should not be in the public docs.
      */
     addFont = function addFont(PostScriptName, fontName, fontStyle, encoding) {
       var fontKey = 'F' + (Object.keys(fonts).length + 1).toString(10),
@@ -1228,9 +1347,9 @@ var jsPDF = function (global) {
      * doc = jsPDF()
      * doc.addPage()
      * doc.addPage()
-     * doc.text('I am on page 3')
+     * doc.text('I am on page 3', 10, 10)
      * doc.setPage(1)
-     * doc.text('I am on page 1')
+     * doc.text('I am on page 1', 10, 10)
      */
     API.setPage = function () {
       _setPage.apply(this, arguments);
@@ -1276,10 +1395,39 @@ var jsPDF = function (global) {
       _deletePage.apply(this, arguments);
       return this;
     };
+
+    /**
+     * Set the display mode options of the page like zoom and layout.
+     *
+     * @param {integer|String} zoom   You can pass an integer or percentage as
+     * a string. 2 will scale the document up 2x, '200%' will scale up by the
+     * same amount. You can also set it to 'fullwidth', 'fullheight',
+     * 'fullpage', or 'original'.
+     *
+     * Only certain PDF readers support this, such as Adobe Acrobat
+     *
+     * @param {String} layout Layout mode can be: 'continuous' - this is the
+     * default continuous scroll. 'single' - the single page mode only shows one
+     * page at a time. 'twoleft' - two column left mode, first page starts on
+     * the left, and 'tworight' - pages are laid out in two columns, with the
+     * first page on the right. This would be used for books.
+     * @param {String} pmode 'UseOutlines' - it shows the
+     * outline of the document on the left. 'UseThumbs' - shows thumbnails along
+     * the left. 'FullScreen' - prompts the user to enter fullscreen mode.
+     *
+     * @function
+     * @returns {jsPDF}
+     * @name setDisplayMode
+     */
     API.setDisplayMode = function (zoom, layout, pmode) {
       zoomMode = zoom;
       layoutMode = layout;
       pageMode = pmode;
+
+      var validPageModes = [undefined, null, 'UseNone', 'UseOutlines', 'UseThumbs', 'FullScreen'];
+      if (validPageModes.indexOf(pmode) == -1) {
+        throw new Error('Page mode must be one of UseNone, UseOutlines, UseThumbs, or FullScreen. "' + pmode + '" is not recognized.');
+      }
       return this;
     },
 
@@ -1479,10 +1627,24 @@ var jsPDF = function (global) {
       return this;
     };
 
+    /**
+     * Letter spacing method to print text with gaps
+     *
+     * @function
+     * @param {String|Array} text String to be added to the page.
+     * @param {Number} x Coordinate (in units declared at inception of PDF document) against left edge of the page
+     * @param {Number} y Coordinate (in units declared at inception of PDF document) against upper edge of the page
+     * @param {Number} spacing Spacing (in units declared at inception)
+     * @returns {jsPDF}
+     * @methodOf jsPDF#
+     * @name lstext
+     * @deprecated We'll be removing this function. It doesn't take character width into account.
+     */
     API.lstext = function (text, x, y, spacing) {
+      console.warn('jsPDF.lstext is deprecated');
       for (var i = 0, len = text.length; i < len; i++, x += spacing) {
         this.text(text[i], x, y);
-      }
+      }return this;
     };
 
     API.line = function (x1, y1, x2, y2) {
@@ -3864,20 +4026,21 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
 	/**
   * Renders an HTML element to canvas object which added to the PDF
   *
-  * This PlugIn requires html2canvas: https://github.com/niklasvh/html2canvas
-  *            OR rasterizeHTML: https://github.com/cburgmer/rasterizeHTML.js
+  * This feature requires [html2canvas](https://github.com/niklasvh/html2canvas)
+  * or [rasterizeHTML](https://github.com/cburgmer/rasterizeHTML.js)
   *
-  * @public
-  * @function
+  * @returns {jsPDF}
+  * @name addHTML
   * @param element {Mixed} HTML Element, or anything supported by html2canvas.
   * @param x {Number} starting X coordinate in jsPDF instance's declared units.
   * @param y {Number} starting Y coordinate in jsPDF instance's declared units.
   * @param options {Object} Additional options, check the code below.
   * @param callback {Function} to call when the rendering has finished.
-  *
   * NOTE: Every parameter is optional except 'element' and 'callback', in such
   *       case the image is positioned at 0x0 covering the whole PDF document
   *       size. Ie, to easily take screenshots of webpages saving them to PDF.
+  * @deprecated This is being replace with a vector-supporting API. See
+  * [this link](https://cdn.rawgit.com/MrRio/jsPDF/master/examples/html2pdf/showcase_supported_html.html)
   */
 
 	jsPDFAPI.addHTML = function (element, x, y, options, callback) {
@@ -4948,24 +5111,37 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
  * http://opensource.org/licenses/mit-license
  */
 
+/**
+* Makes the PDF automatically print. This works in Chrome, Firefox, Acrobat
+* Reader.
+*
+* @returns {jsPDF}
+* @name autoPrint
+* @example
+* var doc = new jsPDF()
+* doc.text(10, 10, 'This is a test')
+* doc.autoPrint()
+* doc.save('autoprint.pdf')
+*/
+
 (function (jsPDFAPI) {
-	'use strict';
+  'use strict';
 
-	jsPDFAPI.autoPrint = function () {
-		'use strict';
+  jsPDFAPI.autoPrint = function () {
+    'use strict';
 
-		var refAutoPrintTag;
+    var refAutoPrintTag;
 
-		this.internal.events.subscribe('postPutResources', function () {
-			refAutoPrintTag = this.internal.newObject();
-			this.internal.write("<< /S/Named /Type/Action /N/Print >>", "endobj");
-		});
+    this.internal.events.subscribe('postPutResources', function () {
+      refAutoPrintTag = this.internal.newObject();
+      this.internal.write("<< /S/Named /Type/Action /N/Print >>", "endobj");
+    });
 
-		this.internal.events.subscribe("putCatalog", function () {
-			this.internal.write("/OpenAction " + refAutoPrintTag + " 0" + " R");
-		});
-		return this;
-	};
+    this.internal.events.subscribe("putCatalog", function () {
+      this.internal.write("/OpenAction " + refAutoPrintTag + " 0" + " R");
+    });
+    return this;
+  };
 })(jsPDF.API);
 
 /**
@@ -5689,7 +5865,7 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
                 if (window.outIntercept) {
                     lines = window.outIntercept.type === 'group' ? window.outIntercept.stream : window.outIntercept;
                 } else {
-                    lines = this.pdf.internal.pages[1];
+                    lines = this.internal.getCurrentPage();
                 }
                 lines.push("q");
                 var origPath = this.path;
@@ -5726,7 +5902,7 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
                 if (window.outIntercept) {
                     lines = window.outIntercept.type === 'group' ? window.outIntercept.stream : window.outIntercept;
                 } else {
-                    lines = this.pdf.internal.pages[1];
+                    lines = this.internal.getCurrentPage();
                 }
                 lines.push("q");
                 var origPath = this.path;
@@ -6214,7 +6390,7 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
                 if (window.outIntercept) {
                     lines = window.outIntercept.type === 'group' ? window.outIntercept.stream : window.outIntercept;
                 } else {
-                    lines = this.pdf.internal.pages[1];
+                    lines = this.internal.getCurrentPage();
                 }
                 lines.push("q");
 
@@ -6327,7 +6503,7 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
                 if (window.outIntercept) {
                     lines = window.outIntercept.type === 'group' ? window.outIntercept.stream : window.outIntercept;
                 } else {
-                    lines = this.pdf.internal.pages[1];
+                    lines = this.internal.getCurrentPage();
                 }
                 lines.push("q");
 
@@ -6356,7 +6532,7 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
             if (window.outIntercept) {
                 lines = window.outIntercept.type === 'group' ? window.outIntercept.stream : window.outIntercept;
             } else {
-                lines = this.pdf.internal.pages[1];
+                lines = this.internal.getCurrentPage();
             }
 
             // if (this.ctx._clip_path.length > 0) {
@@ -6507,10 +6683,14 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
                         }
                     }
 
-                    // extra move bug causing close to resolve to wrong point
-                    var x = moves[i].start.x;
-                    var y = moves[i].start.y;
-                    this.internal.line2(c2d, x, y);
+                    if (this.pdf.hotfix && this.pdf.hotfix.fill_close) {
+                        // do nothing
+                    } else {
+                        // extra move bug causing close to resolve to wrong point
+                        var x = moves[i].start.x;
+                        var y = moves[i].start.y;
+                        this.internal.line2(c2d, x, y);
+                    }
 
                     this.pdf.internal.out('h');
                     this.pdf.internal.out('f');
@@ -6829,6 +7009,10 @@ AcroForm.internal.setBitPosition = function (variable, position, value) {
         }
 
         return curves;
+    };
+
+    c2d.internal.getCurrentPage = function () {
+        return this.pdf.internal.pages[this.pdf.internal.getCurrentPageInfo().pageNumber];
     };
 
     /**
@@ -9825,10 +10009,10 @@ Copyright (c) 2012 Willow Systems Corporation, willow-systems.com
 
 /* FileSaver.js
  * A saveAs() FileSaver implementation.
- * 1.1.20151003
+ * 1.1.20150716
  *
  * By Eli Grey, http://eligrey.com
- * License: MIT
+ * License: X11/MIT
  *   See https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md
  */
 
@@ -9855,7 +10039,6 @@ var saveAs = saveAs || (function(view) {
 			var event = new MouseEvent("click");
 			node.dispatchEvent(event);
 		}
-		, is_safari = /Version\/[\d\.]+.*Safari/.test(navigator.userAgent)
 		, webkit_req_fs = view.webkitRequestFileSystem
 		, req_fs = view.requestFileSystem || webkit_req_fs || view.mozRequestFileSystem
 		, throw_outside = function(ex) {
@@ -9920,19 +10103,6 @@ var saveAs = saveAs || (function(view) {
 				}
 				// on any filesys errors revert to saving with object URLs
 				, fs_error = function() {
-					if (target_view && is_safari && typeof FileReader !== "undefined") {
-						// Safari doesn't allow downloading of blob urls
-						var reader = new FileReader();
-						reader.onloadend = function() {
-							var base64Data = reader.result;
-							target_view.location.href = "data:attachment/file" + base64Data.slice(base64Data.search(/[,;]/));
-							filesaver.readyState = filesaver.DONE;
-							dispatch_all();
-						};
-						reader.readAsDataURL(blob);
-						filesaver.readyState = filesaver.INIT;
-						return;
-					}
 					// don't create more object URLs than needed
 					if (blob_changed || !object_url) {
 						object_url = get_URL().createObjectURL(blob);
@@ -9941,9 +10111,9 @@ var saveAs = saveAs || (function(view) {
 						target_view.location.href = object_url;
 					} else {
 						var new_tab = view.open(object_url, "_blank");
-						if (new_tab == undefined && is_safari) {
+						if (new_tab == undefined && typeof safari !== "undefined") {
 							//Apple do not allow window.open, see http://bit.ly/1kZffRI
-							view.location.href = object_url
+							view.location.href = object_url;
 						}
 					}
 					filesaver.readyState = filesaver.DONE;
@@ -9965,9 +10135,9 @@ var saveAs = saveAs || (function(view) {
 			}
 			if (can_use_save_link) {
 				object_url = get_URL().createObjectURL(blob);
+				save_link.href = object_url;
+				save_link.download = name;
 				setTimeout(function() {
-					save_link.href = object_url;
-					save_link.download = name;
 					click(save_link);
 					dispatch_all();
 					revoke(object_url);
@@ -12505,7 +12675,7 @@ var Deflater = (function(obj) {
   Released under  License
 */
 
-!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.html2canvas=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
+!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.html2canvas=e();}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r);}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 (function (global){
 /*! http://mths.be/punycode v1.2.4 by @mathias */
 (function(root) {
@@ -13015,7 +13185,7 @@ var Deflater = (function(obj) {
 
 }(this));
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {});
 },{}],2:[function(_dereq_,module,exports){
 var log = _dereq_('./log');
 
